@@ -7,9 +7,17 @@ It runs a small web app on your Mac (`http://localhost:8421`) that you use from 
 including your **iPhone** over [Tailscale](https://tailscale.com). **Everything runs locally;
 no photo or metadata ever leaves your machine.**
 
-![Activity dashboard](docs/activity.png)
+![Large Files](docs/large-files.png)
+*Large Files — every item by size with a visual size bar; Keep / Compress / Delete per row.*
 
-*The Activity tab: total reclaimed, a GitHub-style reclaimed-by-day heatmap, and an audit log.*
+![Duplicates](docs/duplicates.png)
+*Duplicates — near-identical groups with a confidence label; keep the best, trash the rest.*
+
+![Activity dashboard](docs/activity.png)
+*Activity — total reclaimed, a GitHub-style reclaimed-by-day heatmap, and an audit log.*
+
+<sub>(Thumbnails above are blurred for privacy — the app shows your real photos. Add `#blur`
+to the URL anytime to blur thumbnails for screenshots or screen-sharing.)</sub>
 
 > ⚠️ This app moves photos to your Photos **trash** and re-encodes videos. It's careful
 > (originals go to the Recently Deleted album, not permanently erased), but you are deleting

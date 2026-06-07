@@ -723,6 +723,8 @@ HTML = """<!DOCTYPE html>
   .frow.trash { opacity: .55; }
   .frow.src-shared, .frow.src-hidden { opacity: .8; }
   .fthumb { width: 64px; height: 48px; border-radius: 5px; object-fit: cover; background: #131720; cursor: zoom-in; flex-shrink: 0; }
+  /* Privacy: ?blur=1 blurs all thumbnails (for screenshots / screen-sharing) */
+  body.blur-thumbs .fthumb, body.blur-thumbs .photo-card img, body.blur-thumbs .lb-overlay img { filter: blur(14px); }
   .fthumb-ph { width: 64px; height: 48px; border-radius: 5px; background: #0a0d14; display: flex; align-items: center; justify-content: center; color: #334155; font-size: 9px; flex-shrink: 0; }
   .fname { width: 230px; flex-shrink: 0; overflow: hidden; }
   .fname .n { font-size: 12px; color: #cbd5e1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1967,10 +1969,14 @@ function applyHiddenSetting() {
 
 applyHiddenSetting();
 boot();
-// Deep-link: open a specific tab from the URL hash (#files / #activity).
+// Deep-link via URL hash: #files / #activity open that tab; include "blur" to
+// blur all thumbnails (privacy — for screenshots / screen-sharing).
+// Examples: #files  ·  #activity  ·  #blur  ·  #files-blur
 (function () {
-  const h = (location.hash || '').replace('#', '');
-  if (h === 'files' || h === 'activity') switchTab(h);
+  const h = (location.hash || '').toLowerCase();
+  if (h.includes('files'))         switchTab('files');
+  else if (h.includes('activity')) switchTab('activity');
+  if (h.includes('blur')) document.body.classList.add('blur-thumbs');
 })();
 </script>
 </body>
