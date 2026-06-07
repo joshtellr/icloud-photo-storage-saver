@@ -1967,6 +1967,11 @@ function applyHiddenSetting() {
 
 applyHiddenSetting();
 boot();
+// Deep-link: open a specific tab from the URL hash (#files / #activity).
+(function () {
+  const h = (location.hash || '').replace('#', '');
+  if (h === 'files' || h === 'activity') switchTab(h);
+})();
 </script>
 </body>
 </html>"""
