@@ -558,6 +558,66 @@ def audit_summary():
     }
 
 
+def weekly_report():
+    """7-day lookback of what was reclaimed + space-saving recommendations drawn
+    from the current duplicate clusters and largest library files."""
+    now = time.time()
+    cutoff = now - 7 * 86400
+
+    # 1. What happened in the last 7 days (from the audit log)
+    recl = deleted = compressed = 0
+    for e in read_audit():
+        if e.get("ts", 0) < cutoff:
+            continue
+        if e.get("type") == "trash":
+            recl += e.get("bytes", 0); deleted += e.get("count", 0)
+        elif e.get("type") == "compress":
+            recl += e.get("saved_bytes", 0); compressed += 1
+
+    recs = []
+
+    # 2. Confident duplicates you still have (library photos only)
+    dup_groups, dup_bytes = 0, 0
+    for c in CLUSTER_DATA:
+        if c.get("match") in ("identical", "near-identical"):
+            libs = [p for p in c["photos"] if p.get("source") == "library"]
+            if len(libs) >= 2:
+                dup_groups += 1
+                dup_bytes += sum(p["size"] for p in libs[1:])   # all but the best
+    if dup_bytes > 0:
+        recs.append({"key": "dupes", "icon": "🗂", "action": "duplicates",
+                     "title": f"Clear {dup_groups:,} confident duplicate group" + ("s" if dup_groups != 1 else ""),
+                     "detail": "Near-identical photos/videos — keep the best of each, trash the rest.",
+                     "save_bytes": dup_bytes})
+
+    # 3. Large library videos worth compressing to H.265
+    VID_MIN = 200 * 1024 * 1024
+    vids = [f for f in FILES_DATA if f.get("is_video") and f.get("source") == "library" and f.get("size", 0) >= VID_MIN]
+    vsave = int(sum(f["size"] for f in vids) * 0.6)
+    if vids:
+        recs.append({"key": "compress", "icon": "🗜", "action": "files-videos",
+                     "title": f"Compress {len(vids):,} large video" + ("s" if len(vids) != 1 else ""),
+                     "detail": f"{fmt_bytes(sum(f['size'] for f in vids))} of video — H.265 typically saves ~60%, same quality.",
+                     "save_bytes": vsave})
+
+    # 4. Your biggest single files, worth a look
+    biggest = [f for f in FILES_DATA if f.get("source") == "library"][:15]
+    if biggest:
+        recs.append({"key": "biggest", "icon": "📦", "action": "files",
+                     "title": f"Review your {len(biggest)} biggest files",
+                     "detail": f"They total {fmt_bytes(sum(f['size'] for f in biggest))} — delete anything you no longer need.",
+                     "save_bytes": 0})
+
+    recs.sort(key=lambda r: r["save_bytes"], reverse=True)
+    return {
+        "period_days": 7,
+        "since": datetime.fromtimestamp(cutoff).isoformat()[:10],
+        "activity": {"reclaimed": recl, "deleted": deleted, "compressed": compressed},
+        "opportunity": dup_bytes + vsave,   # "up to" — small overlap possible
+        "recommendations": recs,
+    }
+
+
 # ─── HTML ─────────────────────────────────────────────────────────────────────
 
 HTML = """<!DOCTYPE html>
@@ -764,6 +824,26 @@ HTML = """<!DOCTYPE html>
 
   /* ── Activity / metrics ── */
   #activity-wrap { padding-top: 16px; }
+  /* Weekly report */
+  #weekly-report { margin-bottom: 18px; }
+  .wr { background: linear-gradient(135deg,#0c1730,#0d1018); border: 1px solid #1e3a6e; border-radius: 14px; padding: 18px 20px; }
+  .wr-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .wr-head h2 { font-size: 17px; font-weight: 800; color: #f1f5f9; }
+  .wr-head .wr-since { font-size: 11px; color: #475569; }
+  .wr-summary { font-size: 13px; color: #94a3b8; margin-bottom: 4px; }
+  .wr-summary b { color: #4ade80; }
+  .wr-opp { font-size: 13px; color: #93c5fd; margin: 8px 0 14px; }
+  .wr-opp b { font-size: 18px; font-weight: 800; color: #60a5fa; }
+  .wr-rec { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid #1e2535; }
+  .wr-rec .wr-ic { font-size: 20px; flex-shrink: 0; width: 26px; text-align: center; }
+  .wr-rec .wr-txt { flex: 1; min-width: 0; }
+  .wr-rec .wr-t { font-size: 14px; font-weight: 700; color: #e2e8f0; }
+  .wr-rec .wr-d { font-size: 12px; color: #64748b; margin-top: 2px; }
+  .wr-rec .wr-save { font-size: 13px; font-weight: 800; color: #4ade80; white-space: nowrap; flex-shrink: 0; }
+  .wr-rec .wr-btn { background: #1e3a5f; color: #93c5fd; border: 1px solid #2563eb; border-radius: 7px; padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+  .wr-rec .wr-btn:hover { background: #2563eb; color: #fff; }
+  .wr-empty { font-size: 13px; color: #4ade80; padding: 10px 0 2px; }
+
   .metric-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 8px; }
   .mcard { background: #131720; border: 1px solid #1e2535; border-radius: 12px; padding: 16px 18px; }
   .mcard .ml { font-size: 10px; color: #475569; text-transform: uppercase; letter-spacing: .07em; margin-bottom: 8px; }
@@ -988,6 +1068,7 @@ HTML = """<!DOCTYPE html>
 
 <!-- Activity / metrics tab -->
 <div id="activity-wrap" class="mode-activity" style="display:none">
+  <div id="weekly-report"></div>
   <div class="metric-cards">
     <div class="mcard green"><div class="ml">Total reclaimed</div><div class="mv" id="m-reclaimed">—</div><div class="ms" id="m-reclaimed-sub">all time</div></div>
     <div class="mcard red">  <div class="ml">Photos deleted</div><div class="mv" id="m-deleted">—</div></div>
@@ -1529,7 +1610,54 @@ function switchTab(mode) {
 // ── Activity / metrics ────────────────────────────────────────────────────────
 const AUDIT_ICONS = { trash: '🗑️', compress: '🗜️', session: '▶️' };
 
+// ── Weekly report ─────────────────────────────────────────────────────────────
+async function loadReport() {
+  let r;
+  try { r = await fetch('/report', {cache:'no-store'}).then(x => x.json()); }
+  catch(e) { return; }
+  const a = r.activity || {};
+  const did = a.reclaimed > 0
+    ? `This week you reclaimed <b>${fmtBytes(a.reclaimed)}</b> — ${(a.deleted||0).toLocaleString()} deleted, ${(a.compressed||0).toLocaleString()} compressed.`
+    : `No cleanup logged in the last 7 days.`;
+  const label = ac => ac === 'files-videos' ? 'Compress' : 'Review';
+  const recs = (r.recommendations || []).map(rec => `
+    <div class="wr-rec">
+      <span class="wr-ic">${rec.icon}</span>
+      <div class="wr-txt"><div class="wr-t">${esc(rec.title)}</div><div class="wr-d">${esc(rec.detail)}</div></div>
+      ${rec.save_bytes ? `<span class="wr-save">~${fmtBytes(rec.save_bytes)}</span>` : ''}
+      <button class="wr-btn" onclick="applyRecommendation('${rec.action}')">${label(rec.action)}</button>
+    </div>`).join('');
+  document.getElementById('weekly-report').innerHTML = `
+    <div class="wr">
+      <div class="wr-head"><h2>Weekly report</h2><span class="wr-since">last 7 days · since ${r.since}</span></div>
+      <div class="wr-summary">${did}</div>
+      ${r.opportunity > 0 ? `<div class="wr-opp">You could still reclaim up to <b>${fmtBytes(r.opportunity)}</b>:</div>` : ''}
+      ${recs || '<div class="wr-empty">✓ Nothing obvious to clean up right now — nice work.</div>'}
+    </div>`;
+}
+
+function setChipActive(groupId, val) {
+  document.querySelectorAll('#' + groupId + ' .fchip').forEach(c => c.classList.toggle('active', c.dataset.val === val));
+}
+
+// Jump from a recommendation straight to the relevant filtered view.
+function applyRecommendation(action) {
+  if (action === 'duplicates') {
+    filters.match = 'confident'; setChipActive('match-filter', 'confident');
+    switchTab('dupes'); applyFiltersAndSort();
+  } else if (action === 'files-videos') {
+    fFilters.type = 'videos'; fFilters.source = 'all';
+    setChipActive('f-type-filter', 'videos'); setChipActive('f-source-filter', 'all');
+    switchTab('files'); if (filesLoaded) applyFilesFilters();
+  } else { // files (biggest)
+    fFilters.type = 'all'; setChipActive('f-type-filter', 'all');
+    switchTab('files'); if (filesLoaded) applyFilesFilters();
+  }
+  window.scrollTo(0, 0);
+}
+
 async function loadAudit() {
+  loadReport();
   let a;
   try { a = await fetch('/audit', {cache:'no-store'}).then(r => r.json()); }
   catch(e) { return; }
@@ -2134,6 +2262,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "application/json", json.dumps(dict(COMPRESS_STATE)).encode())
         elif self.path == "/audit":
             self._send(200, "application/json", json.dumps(audit_summary()).encode())
+        elif self.path == "/report":
+            self._send(200, "application/json", json.dumps(weekly_report()).encode())
         elif self.path == "/decisions":
             self._send(200, "application/json", json.dumps(read_decisions()).encode())
         elif self.path.startswith("/thumb/"):
