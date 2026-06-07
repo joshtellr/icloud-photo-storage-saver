@@ -1,0 +1,20 @@
+# Build artifacts
+dist/
+build/
+*.dmg
+*.app/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
+
+# Runtime data (these live in $HOME, but never commit them if they appear)
+*.tmp
+.photos_dedup_cache.json
+.photos_dedup_decisions.json
+.photo_saver_audit.jsonl
+.photos_dedup.log
