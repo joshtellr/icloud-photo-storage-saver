@@ -49,8 +49,8 @@ the app only ever acts on photos you actually own and can delete.
 1. Download the latest **`.dmg`** from [Releases](https://github.com/joshtellr/icloud-photo-storage-saver/releases).
 2. Open it and drag **iCloud Photo Storage Saver** onto **Applications**.
 3. It's not code-signed yet, so the first time: **right-click the app → Open → Open** (once).
-4. On first launch it installs its dependencies (a few minutes, shown in Terminal), then asks
-   for **Photos access** and **Automation** permission — approve both.
+4. On first launch it asks for **Photos access** and **Automation** permission — approve both.
+   (Everything it needs is bundled — no Terminal, no Homebrew, no separate install.)
 5. It opens `http://localhost:8421`. That's the app.
 
 ## Install from source
@@ -58,23 +58,29 @@ the app only ever acts on photos you actually own and can delete.
 ```bash
 git clone https://github.com/joshtellr/icloud-photo-storage-saver.git
 cd icloud-photo-storage-saver
-bash setup.sh        # installs deps + builds the .app in /Applications
+bash setup.sh        # builds a self-contained .app in /Applications
 open "/Applications/iCloud Photo Storage Saver.app"
 ```
 
-Or run it directly without the app bundle:
+`setup.sh` stages a private Python plus `ffmpeg`/`ffprobe`/`exiftool` *inside* the
+`.app` (arm64), so the built app needs nothing on the end user's Mac. The build
+itself needs network access and [`uv`](https://github.com/astral-sh/uv) (auto-installed).
+See [BUILDING.md](BUILDING.md) for details and the planned signing/notarization step.
+
+Or run it directly from source without building the bundle:
 
 ```bash
-~/.local/bin/osxphotos run photo_saver.py      # then open http://localhost:8421
+bash setup.sh --deps-only                       # user-level osxphotos + libs
+~/.local/bin/osxphotos run photo_saver.py       # then open http://localhost:8421
 ```
 
 ## Requirements
 
-- macOS 11+ with the Apple **Photos** app and an active Photos library
+- macOS 11+ on **Apple Silicon**, with the Apple **Photos** app and an active Photos library
 - Permissions: **Photos** access + **Automation** (to open items in Photos and trash them)
-- Installed automatically by `setup.sh`: [`uv`](https://github.com/astral-sh/uv),
+- **Nothing else to install** — the `.dmg` bundles its own Python,
   [`osxphotos`](https://github.com/RhetTbull/osxphotos), `pillow`, `pillow-heif`,
-  `pyobjc-framework-Photos`, and (via Homebrew) `ffmpeg` + `exiftool` for the Compress feature.
+  `pyobjc-framework-Photos`, and `ffmpeg` + `exiftool` (for Compress). No uv, no Homebrew.
 
 ## Remote access (optional, advanced)
 
@@ -144,10 +150,11 @@ keep/trash choices are plain files in your home folder (`~/.photos_dedup_*`,
 ## Contributing / releases
 
 Issues and PRs welcome. Cut a release by running `bash build_dmg.sh` and attaching
-`dist/iCloudPhotoStorageSaver.dmg` to a GitHub Release.
+`dist/iCloudPhotoStorageSaver.dmg` to a GitHub Release. See [BUILDING.md](BUILDING.md)
+for how the self-contained runtime is staged and how to override the bundled components.
 
 A signed + notarized build (so the app opens without the right-click step) needs an Apple
-Developer ID — that's a planned future improvement.
+Developer ID — that's the planned next step (Part B in BUILDING.md).
 
 ## License
 

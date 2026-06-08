@@ -35,16 +35,29 @@ if [ -z "$SCRIPT" ]; then
   exit 1
 fi
 
-OSX="$HOME/.local/bin/osxphotos"; [ -x "$OSX" ] || OSX="$(command -v osxphotos || true)"
-if [ -z "$OSX" ]; then echo "✗ osxphotos not found — run setup.sh first."; exit 1; fi
+# Prefer the self-contained app's bundled runtime; fall back to a user-level
+# osxphotos for source/dev installs. Build the right ProgramArguments + env.
+RES="$(cd "$(dirname "$SCRIPT")" && pwd)"
+BUNDLED_PY="$RES/python/bin/python3"
+ENV_ENTRIES=""
+[ -n "$PHOTO_SAVER_TOKEN" ] && ENV_ENTRIES="$ENV_ENTRIES<key>PHOTO_SAVER_TOKEN</key><string>$PHOTO_SAVER_TOKEN</string>"
+[ -n "$PHOTO_SAVER_TOKEN" ] && echo "→ Agent will require token: $PHOTO_SAVER_TOKEN"
 
-# Optional token block (only if PHOTO_SAVER_TOKEN is set in the environment).
-ENV_BLOCK=""
-if [ -n "$PHOTO_SAVER_TOKEN" ]; then
-  ENV_BLOCK="  <key>EnvironmentVariables</key>
-  <dict><key>PHOTO_SAVER_TOKEN</key><string>$PHOTO_SAVER_TOKEN</string></dict>"
-  echo "→ Agent will require token: $PHOTO_SAVER_TOKEN"
+if [ -x "$BUNDLED_PY" ]; then
+  PROG_ARGS="    <string>$BUNDLED_PY</string><string>$SCRIPT</string><string>--no-open</string>"
+  # Bundled tools on PATH + point the compressor's exporter at bundled osxphotos.
+  ENV_ENTRIES="$ENV_ENTRIES<key>PATH</key><string>$RES/bin:/usr/bin:/bin:/usr/sbin:/sbin</string><key>PS_OSXPHOTOS_BIN</key><string>$RES/bin/osxphotos</string>"
+  echo "→ Using bundled runtime: $BUNDLED_PY"
+else
+  OSX="$HOME/.local/bin/osxphotos"; [ -x "$OSX" ] || OSX="$(command -v osxphotos || true)"
+  if [ -z "$OSX" ]; then echo "✗ osxphotos not found — install the app (setup.sh) or run setup.sh --deps-only."; exit 1; fi
+  PROG_ARGS="    <string>$OSX</string><string>run</string><string>$SCRIPT</string><string>--no-open</string>"
+  echo "→ Using user-level osxphotos: $OSX"
 fi
+
+ENV_BLOCK=""
+[ -n "$ENV_ENTRIES" ] && ENV_BLOCK="  <key>EnvironmentVariables</key>
+  <dict>$ENV_ENTRIES</dict>"
 
 mkdir -p "$HOME/Library/LaunchAgents"
 cat > "$PLIST" <<PLIST
@@ -55,7 +68,7 @@ cat > "$PLIST" <<PLIST
   <key>Label</key><string>$LABEL</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$OSX</string><string>run</string><string>$SCRIPT</string><string>--no-open</string>
+$PROG_ARGS
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
@@ -69,6 +82,5 @@ PLIST
 
 launchctl bootout "gui/$UID_N" "$PLIST" 2>/dev/null || true
 launchctl bootstrap "gui/$UID_N" "$PLIST"
-echo "✓ Always-on agent installed. It starts at login and runs:"
-echo "    $OSX run \"$SCRIPT\" --no-open"
+echo "✓ Always-on agent installed. It starts at login and serves $SCRIPT --no-open"
 echo "  Open the app at http://localhost:8421 . Remove it with: bash install-agent.sh --uninstall"

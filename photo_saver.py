@@ -424,7 +424,10 @@ def _finalize_trash(uuids):
 
 # ─── Compress (video → H.265, re-import, trash original) ──────────────────────
 
-OSXPHOTOS_BIN = Path.home() / ".local" / "bin" / "osxphotos"
+# The self-contained .app sets PS_OSXPHOTOS_BIN to its bundled osxphotos wrapper.
+# Falls back to the user-level install for source/dev runs (`osxphotos run …`).
+OSXPHOTOS_BIN = Path(os.environ.get(
+    "PS_OSXPHOTOS_BIN", Path.home() / ".local" / "bin" / "osxphotos"))
 
 COMPRESS_STATE = {
     "running": False, "total": 0, "done": 0, "current": "", "current_uuid": "",
