@@ -73,6 +73,28 @@ def write_decisions(data):
         os.replace(tmp, DECISIONS_FILE)
 
 
+def clear_decisions(uuids):
+    """Drop the given UUIDs from the saved decisions (e.g. after they're trashed),
+    so a page refresh can't resurrect a mark for a photo that's already gone."""
+    uuids = set(uuids)
+    if not uuids:
+        return
+    d = read_decisions()
+    pruned = {u: v for u, v in d.items() if u not in uuids}
+    if len(pruned) != len(d):
+        write_decisions(pruned)
+
+
+def prune_decisions(valid_uuids):
+    """Keep only decisions whose UUID is still in the library. Removes stale marks
+    for photos that have since been trashed/emptied (heals an out-of-date file)."""
+    valid_uuids = set(valid_uuids)
+    d = read_decisions()
+    pruned = {u: v for u, v in d.items() if u in valid_uuids}
+    if len(pruned) != len(d):
+        write_decisions(pruned)
+
+
 # ─── Hashing ──────────────────────────────────────────────────────────────────
 
 def dhash(img, size=8):
@@ -342,7 +364,10 @@ def trash_photos(uuids):
     # Only delete photos in YOUR library. Shared-album / "shared with you" /
     # orphan items aren't yours to delete, and including one in the batch would
     # fail the whole performChangesAndWait (all-or-nothing). Skip them cleanly.
-    assets, found_uuids, skipped = [], [], []
+    #   gone = a library photo with no live asset → already in Recently Deleted
+    #          (e.g. trashed in an earlier action). Treat as already-done and clean
+    #          up its stale state instead of reporting a confusing failure.
+    assets, found_uuids, gone, skipped = [], [], [], []
     for uuid in uuids:
         if LIBRARY_UUIDS is not None and uuid not in LIBRARY_UUIDS:
             skipped.append(uuid)
@@ -353,10 +378,13 @@ def trash_photos(uuids):
             assets.append(asset)
             found_uuids.append(uuid)
         else:
-            skipped.append(uuid)
+            gone.append(uuid)
 
     if not assets:
-        return {"trashed": 0, "failed": len(skipped), "trashed_uuids": []}
+        # Nothing live to delete — but heal any stale "already gone" library photos.
+        _finalize_trash(gone)
+        return {"trashed": 0, "already_gone": len(gone),
+                "failed": len(skipped), "trashed_uuids": gone}
 
     # ONE change request for the whole batch → a single macOS confirmation
     # dialog, regardless of how many photos are selected.
@@ -374,10 +402,24 @@ def trash_photos(uuids):
         names = [p.original_filename for p in kept[:50]]
         audit_log({"type": "trash", "count": len(found_uuids), "bytes": bytes_freed,
                    "videos": n_vid, "photos": len(kept) - n_vid, "items": names})
-        return {"trashed": len(found_uuids), "failed": len(skipped),
-                "trashed_uuids": found_uuids}
-    # User clicked "Don't Allow" or it failed — nothing deleted
-    return {"trashed": 0, "failed": len(uuids), "trashed_uuids": []}
+        cleared = found_uuids + gone
+        _finalize_trash(cleared)
+        return {"trashed": len(found_uuids), "already_gone": len(gone),
+                "failed": len(skipped), "trashed_uuids": cleared}
+    # User clicked "Don't Allow" or it failed — nothing deleted. Still clean up
+    # the genuinely-gone ones so they stop reappearing.
+    _finalize_trash(gone)
+    return {"trashed": 0, "already_gone": len(gone),
+            "failed": len(found_uuids) + len(skipped), "trashed_uuids": gone}
+
+
+def _finalize_trash(uuids):
+    """Persist the consequences of a trash: forget the marks and drop the photos
+    from the live payloads so a refresh stays in sync with what's actually gone."""
+    if not uuids:
+        return
+    clear_decisions(uuids)
+    prune_payloads(uuids)
 
 
 # ─── Compress (video → H.265, re-import, trash original) ──────────────────────
@@ -1488,7 +1530,8 @@ async function trashSelected() {
   try {
     const res = await fetch('/trash',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uuids})}).then(r=>r.json());
     if (res.error) throw new Error(res.error);
-    toast(`Moved ${res.trashed} to trash.${res.failed?' '+res.failed+' failed.':''}`, res.failed?'err':'ok');
+    const extra = (res.already_gone?` ${res.already_gone} already removed.`:'') + (res.failed?` ${res.failed} failed.`:'');
+    toast(`Moved ${res.trashed} to trash.${extra}`, res.failed?'err':'ok');
     const done = new Set(res.trashed_uuids || []);
     done.forEach(u => { delete decisions[u]; delete photoMeta[u]; });
     allClusters = allClusters.map(c=>({...c,photos:c.photos.filter(p=>!done.has(p.uuid))})).filter(c=>c.photos.length>=2);
@@ -1501,7 +1544,7 @@ async function trashSelected() {
     rebuildStats();
     applyFiltersAndSort();
     if (filesLoaded) applyFilesFilters();
-  } catch(e) { toast('Error: '+e.message,'err'); btn.disabled=false; }
+  } catch(e) { toast('Error: '+e.message,'err'); } finally { btn.disabled=false; }
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -2224,9 +2267,32 @@ FILES_DATA = []
 PHOTOS_BY_UUID = {}
 _clusters_gzip: bytes = b""   # pre-compressed /clusters payload
 _files_gzip: bytes = b""      # pre-compressed /files payload
+PAYLOAD_LOCK = threading.Lock()   # guards in-place edits to the payloads above
 LIBRARY_UUIDS = None          # UUIDs in your own library (deletable)
 PK_ALL_UUIDS = None           # + shared-album + synced (openable, maybe not deletable)
 HIDDEN_UUIDS = set()          # in the Hidden album (PhotoKit can't reach these at all)
+
+
+def prune_payloads(removed):
+    """Remove trashed UUIDs from the live cluster/file payloads and rebuild the
+    gzip caches, so a refresh of an already-running server doesn't re-serve photos
+    that were just deleted. Clusters that drop below 2 photos are dropped entirely
+    (matching the client's own post-trash filtering)."""
+    global CLUSTER_DATA, FILES_DATA, _clusters_gzip, _files_gzip
+    removed = set(removed)
+    if not removed:
+        return
+    with PAYLOAD_LOCK:
+        new_clusters = []
+        for c in CLUSTER_DATA:
+            photos = [p for p in c["photos"] if p["uuid"] not in removed]
+            if len(photos) >= 2:
+                new_clusters.append({**c, "photos": photos})
+        new_files = [f for f in FILES_DATA if f["uuid"] not in removed]
+        CLUSTER_DATA = new_clusters
+        FILES_DATA = new_files
+        _clusters_gzip = gzip.compress(json.dumps(CLUSTER_DATA).encode(), compresslevel=6)
+        _files_gzip = gzip.compress(json.dumps(FILES_DATA).encode(), compresslevel=6)
 
 
 def photo_source(uuid):
@@ -2488,6 +2554,9 @@ def process_library(args):
             print(f"  (PhotoKit source classification unavailable: {e})")
 
         PHOTOS_BY_UUID = {p.uuid: p for p in photos}
+        # Heal stale marks: drop decisions for photos no longer in the library
+        # (already trashed/emptied) so they can't resurrect on the next load.
+        prune_decisions(PHOTOS_BY_UUID.keys())
         n_deriv = sum(1 for p in photos if p.path_derivatives)
         print(f"  {len(photos):,} photos/videos  ({n_deriv:,} have local thumbnails)")
         set_state(total_photos=len(photos))
