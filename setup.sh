@@ -73,6 +73,9 @@ stage_runtime() {
   rm -rf "$RES/python"
   cp -R "$PYROOT" "$RES/python"
   PY="$RES/python/bin/python3"
+  # This is now OUR private copy to modify, so drop uv's PEP-668 "externally
+  # managed" marker that otherwise makes pip refuse to install into it.
+  find "$RES/python/lib" -name EXTERNALLY-MANAGED -delete 2>/dev/null || true
   "$PY" -m ensurepip --upgrade >/dev/null 2>&1 || true
   "$PY" -m pip install --quiet --upgrade pip
   "$PY" -m pip install --quiet osxphotos pillow pillow-heif pyobjc-framework-Photos
