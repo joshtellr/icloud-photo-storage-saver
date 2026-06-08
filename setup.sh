@@ -55,6 +55,7 @@ build_app() {
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>launcher</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>
@@ -101,6 +102,14 @@ LAUNCHER
   cp "$SRC_DIR/photo_saver.py" "$APP/Contents/Resources/photo_saver.py"
   cp "$SRC_DIR/setup.sh"       "$APP/Contents/Resources/setup.sh"
   chmod +x "$APP/Contents/Resources/setup.sh"
+
+  # App icon (regenerate if a fresh checkout is missing it).
+  if [ ! -f "$SRC_DIR/docs/AppIcon.icns" ] && [ -f "$SRC_DIR/make_app_icon.py" ]; then
+    PY="$(ls "$HOME"/.local/share/uv/tools/osxphotos/bin/python* 2>/dev/null | head -1)"
+    [ -x "$PY" ] || PY="python3"
+    "$PY" "$SRC_DIR/make_app_icon.py" || true
+  fi
+  [ -f "$SRC_DIR/docs/AppIcon.icns" ] && cp "$SRC_DIR/docs/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
   xattr -cr "$APP" 2>/dev/null || true
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP" 2>/dev/null || true

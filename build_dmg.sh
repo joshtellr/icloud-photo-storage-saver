@@ -54,15 +54,17 @@ MOUNT_OUT="$(hdiutil attach -readwrite -noverify -nobrowse "$RW")"
 DEV="$(echo "$MOUNT_OUT" | grep -Eo '^/dev/disk[0-9]+' | head -1)"
 MNT="$(echo "$MOUNT_OUT" | sed -n 's/.*	\(\/Volumes\/.*\)$/\1/p' | head -1)"
 VOLNAME="$(basename "$MNT")"
-# Detach the staging volume. Finder can briefly keep the volume busy after it
-# closes the styled window, so retry a few times before falling back to -force.
-# (A silently-failed detach leaves a stray mount + Finder window around.)
+# Detach the staging volume. Finder keeps the volume busy for a few seconds after
+# it closes the styled window, so be patient: retry a plain detach, then -force,
+# then fall back to `diskutil eject`. (A silently-failed detach leaves a stray
+# mount + Finder window around.)
 cleanup() {
-  for _ in 1 2 3 4 5; do
+  for _ in $(seq 1 12); do
     hdiutil detach "$DEV" >/dev/null 2>&1 && return 0
     sleep 1
   done
-  hdiutil detach "$DEV" -force >/dev/null 2>&1 || true
+  hdiutil detach "$DEV" -force >/dev/null 2>&1 && return 0
+  diskutil eject "$DEV" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 sleep 1

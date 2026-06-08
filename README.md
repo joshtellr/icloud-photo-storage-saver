@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/app-icon.png" alt="iCloud Photo Storage Saver icon" width="128">
+</p>
+
 # iCloud Photo Storage Saver
 
 A free, local macOS app to reclaim storage in your **Apple Photos / iCloud** library —
