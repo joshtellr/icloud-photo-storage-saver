@@ -12,6 +12,19 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
+### Coverage
+
+CI runs with a coverage gate (`--cov-fail-under=85`); `photo_saver.py` currently
+sits at ~90%. To see the report locally:
+
+```bash
+python -m pytest --cov=photo_saver --cov-report=term-missing
+```
+
+The uncovered remainder is mostly the `main`/`start_server` entrypoints, the
+real-PhotoKit source-classification block (only reachable on macOS), and small
+exception branches.
+
 ## What's covered
 
 | Area | File | Function(s) under test |

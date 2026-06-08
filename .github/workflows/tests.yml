@@ -23,4 +23,6 @@ jobs:
       - name: Install dev dependencies
         run: pip install -r requirements-dev.txt
       - name: Run tests
-        run: python -m pytest -ra -m "not macos"
+        run: >-
+          python -m pytest -ra -m "not macos"
+          --cov=photo_saver --cov-report=term-missing --cov-fail-under=85

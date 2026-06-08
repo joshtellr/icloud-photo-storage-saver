@@ -3,4 +3,5 @@
 # pure-logic and persistence tests run anywhere (including Linux CI) because
 # photo_saver.py imports the macOS-only modules lazily.
 pytest>=7.0
+pytest-cov>=4.0
 pillow>=9.0

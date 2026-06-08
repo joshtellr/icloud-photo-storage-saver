@@ -92,6 +92,51 @@ def test_unknown_route_is_404(server):
     assert status == 404
 
 
+def test_clusters_served_gzipped_when_accepted(server, monkeypatch):
+    import gzip
+    payload = [{"id": "x", "photos": [{"uuid": "a"}, {"uuid": "b"}]}]
+    monkeypatch.setattr(ps, "CLUSTER_DATA", payload)
+    monkeypatch.setattr(ps, "_clusters_gzip", gzip.compress(json.dumps(payload).encode()))
+    status, headers, body = _request(server + "/clusters",
+                                     headers={"Accept-Encoding": "gzip"})
+    assert status == 200
+    assert headers.get("Content-Encoding") == "gzip"
+    assert json.loads(gzip.decompress(body)) == payload
+
+
+def test_files_served_gzipped_when_accepted(server, monkeypatch):
+    import gzip
+    payload = [{"uuid": "a", "size": 1}]
+    monkeypatch.setattr(ps, "FILES_DATA", payload)
+    monkeypatch.setattr(ps, "_files_gzip", gzip.compress(json.dumps(payload).encode()))
+    status, headers, body = _request(server + "/files",
+                                     headers={"Accept-Encoding": "gzip"})
+    assert headers.get("Content-Encoding") == "gzip"
+    assert json.loads(gzip.decompress(body)) == payload
+
+
+def test_metric_routes_return_json(server):
+    for route in ("/status", "/compress-status", "/audit", "/report", "/decisions"):
+        status, headers, body = _request(server + route)
+        assert status == 200, route
+        assert "application/json" in headers["Content-Type"], route
+        json.loads(body)  # parses
+
+
+def test_thumb_serves_jpeg_for_known_photo(server, tmp_path, monkeypatch, make_photo):
+    from PIL import Image
+    deriv = tmp_path / "d.jpg"
+    Image.new("RGB", (200, 150), (10, 120, 200)).save(deriv, "JPEG")
+    monkeypatch.setattr(ps, "PHOTOS_BY_UUID",
+                        {"u": make_photo("u", path_derivatives=[str(deriv)])})
+    with ps._thumb_lock:
+        ps._thumb_cache.clear()
+    status, headers, body = _request(server + "/thumb/u")
+    assert status == 200
+    assert headers["Content-Type"] == "image/jpeg"
+    assert body[:2] == b"\xff\xd8"
+
+
 def test_thumb_unknown_uuid_is_404(server):
     status, _, _ = _request(server + "/thumb/does-not-exist")
     assert status == 404
