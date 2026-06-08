@@ -8,8 +8,10 @@ directly. The fixtures here provide:
   * redirection of the module's home-directory state files into a tmp dir
 """
 import sys
+import types
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -78,3 +80,55 @@ def state_files(tmp_path, monkeypatch):
     monkeypatch.setattr(photo_saver, "DECISIONS_FILE", decisions)
     monkeypatch.setattr(photo_saver, "AUDIT_FILE", audit)
     return {"cache": cache, "decisions": decisions, "audit": audit}
+
+
+@pytest.fixture
+def fake_photos(monkeypatch):
+    """Install a fake `Photos` (PhotoKit) module in sys.modules so the
+    macOS-only deletion/compression paths can run anywhere.
+
+    The returned controller lets a test register which UUIDs resolve to a live
+    asset and whether the user-confirmation change request "succeeds".
+    """
+    state = {"assets": {}, "ok": True, "deleted": []}
+
+    class FetchResult:
+        def __init__(self, asset):
+            self._asset = asset
+
+        def firstObject(self):
+            return self._asset
+
+    class PHAsset:
+        @staticmethod
+        def fetchAssetsWithLocalIdentifiers_options_(ids, opts):
+            return FetchResult(state["assets"].get(ids[0]))
+
+    class PHAssetChangeRequest:
+        @staticmethod
+        def deleteAssets_(assets):
+            state["deleted"].extend(assets)
+
+    class Library:
+        def performChangesAndWait_error_(self, fn, err):
+            if state["ok"]:
+                fn()  # exercises deleteAssets_ exactly as the real flow would
+            return (state["ok"], None)
+
+    class PHPhotoLibrary:
+        @staticmethod
+        def sharedPhotoLibrary():
+            return Library()
+
+    mod = types.ModuleType("Photos")
+    mod.PHAsset = PHAsset
+    mod.PHAssetChangeRequest = PHAssetChangeRequest
+    mod.PHPhotoLibrary = PHPhotoLibrary
+    monkeypatch.setitem(sys.modules, "Photos", mod)
+
+    return SimpleNamespace(
+        state=state,
+        add_asset=lambda uuid: state["assets"].__setitem__(uuid, object()),
+        set_ok=lambda value: state.__setitem__("ok", value),
+        deleted=state["deleted"],
+    )
