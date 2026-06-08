@@ -26,6 +26,9 @@ python -m pytest
 | Weekly report | `test_weekly_report.py` | `weekly_report` |
 | Source classification | `test_photo_source.py` | `photo_source` |
 | Post-trash payload sync | `test_prune_payloads.py` | `prune_payloads` |
+| HTTP layer | `test_http.py` | `Handler` routing, `_authed`/`_query_token`, POST hardening, `/open` & `/finddate` sanitization |
+| Trash flow | `test_trash.py` | `trash_photos` (library-only filtering, already-gone healing, user-cancel, finalize) |
+| Compress flow | `test_compress.py` | `start_compress`, `_video_duration`, `_compress_one` (export/not-smaller/import guards) |
 
 `test_decisions.py` and `test_prune_payloads.py` include regression coverage for
 the "trashed photos reappearing after refresh" fix (commit 4ed2cf6).
@@ -39,9 +42,17 @@ the "trashed photos reappearing after refresh" fix (commit 4ed2cf6).
 - **`state_files`** — redirects the module's home-directory state files
   (`CACHE_FILE`, `DECISIONS_FILE`, `AUDIT_FILE`) into a tmp dir.
 
+The HTTP tests start a real `ThreadingHTTPServer` on an ephemeral port and stub
+the macOS-only `osascript`/`pbcopy` subprocess calls so the auth and
+sanitization paths run on any platform.
+
+The trash/compress tests fake PhotoKit (via the `fake_photos` fixture, which
+installs a stub `Photos` module in `sys.modules`) and the
+osxphotos/ffmpeg/exiftool subprocess calls, so even these macOS-integration
+paths run — and gate on — Linux CI.
+
 ## Not yet covered (good next steps)
 
-- HTTP layer: token auth (`_authed`), POST hardening (413/400), and input
-  sanitization on `/open/` and `/finddate/`. These need a server harness.
-- macOS integration (`trash_photos`, `start_compress`, `_compress_one`) — needs
-  `subprocess`/PhotoKit mocking; mark such tests `@pytest.mark.macos`.
+- `get_thumb_bytes` LRU eviction and `prewarm_thumbnails` cache behavior.
+- `process_library` orchestration (would need a fake osxphotos `PhotosDB`).
+- The client-side JS in the embedded `HTML` string.
