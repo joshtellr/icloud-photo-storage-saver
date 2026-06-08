@@ -1,0 +1,1 @@
+iCloud Photo Storage Saver — a free, local macOS app · [GPL-3.0](https://github.com/joshtellr/icloud-photo-storage-saver/blob/main/LICENSE) · 100% local, no telemetry · [Report a security issue](https://github.com/joshtellr/icloud-photo-storage-saver/security/advisories/new)
