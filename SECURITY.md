@@ -10,10 +10,20 @@ The web UI talks to local endpoints, some of which are **destructive** (moving
 photos to the Photos trash, re-encoding videos, deleting). On loopback these are
 unauthenticated by design — the same trust model as any local desktop app.
 
-## Exposing it beyond your Mac (Tailscale, etc.)
+## Exposing it beyond your Mac
 
-If you expose port 8421 beyond `localhost` (e.g. `tailscale serve`), **set an
-access token** so other devices/processes can't trigger destructive actions:
+This is a **single-user personal tool**, not a hardened multi-user server. It has
+no user accounts, no TLS of its own, and no rate limiting. If you want to reach it
+from another device, front it with your own access layer — the same way you'd
+expose any self-hosted service:
+
+- **Mesh VPN** — Tailscale, WireGuard, Netbird (private, no public exposure).
+- **Reverse proxy with TLS** — Caddy, nginx, or Traefik terminating HTTPS in front
+  of `127.0.0.1:8421`.
+- **SSH tunnel** — `ssh -L 8421:localhost:8421 your-mac` for occasional access.
+
+Whenever the port leaves `localhost`, **set an access token** as defense-in-depth
+on top of (never instead of) that layer:
 
 ```bash
 export PHOTO_SAVER_TOKEN="$(openssl rand -hex 16)"
@@ -22,11 +32,12 @@ export PHOTO_SAVER_TOKEN="$(openssl rand -hex 16)"
 
 When `PHOTO_SAVER_TOKEN` is set, **every** request must present it via
 `?token=…` (the cookie is then set for the session), an `X-Auth-Token` header, or
-the `ps_token` cookie. Requests without it get `401`.
+the `ps_token` cookie. Requests without it get `401`. The token is a plaintext
+shared secret compared on each request — treat it as a thin gate, not real auth,
+and only ever send it over a connection you already trust (VPN or TLS).
 
-Even so, prefer a **private network** like [Tailscale](https://tailscale.com)
-(tailnet-only, HTTPS) over public exposure. Do not put this behind a public
-`tailscale funnel` or a port-forward without a token, and ideally not at all.
+**Never put this on the raw public internet** — no port-forward, no Tailscale
+Funnel. The endpoints are destructive and there's no account model to fall back on.
 
 ## What it can do
 

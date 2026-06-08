@@ -18,7 +18,7 @@ What you expected to happen.
 - macOS version:
 - Roughly how many photos/videos in your library:
 - Installed via: DMG / `setup.sh` / run from source
-- Accessing locally or over Tailscale (with/without a token):
+- Accessing locally, or remotely via VPN / reverse proxy / SSH tunnel (with/without a token):
 
 **Logs**
 Relevant lines from `~/.photos_dedup.log` (redact anything personal).

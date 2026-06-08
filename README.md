@@ -3,9 +3,9 @@
 A free, local macOS app to reclaim storage in your **Apple Photos / iCloud** library —
 find duplicates, browse and shrink your biggest videos, and track what you've saved over time.
 
-It runs a small web app on your Mac (`http://localhost:8421`) that you use from any browser —
-including your **iPhone** over [Tailscale](https://tailscale.com). **Everything runs locally;
-no photo or metadata ever leaves your machine.**
+It runs a small web app on your Mac (`http://localhost:8421`) that you use from any browser on
+your Mac — or your **phone**, if you put it behind your own VPN or reverse proxy.
+**Everything runs locally; no photo or metadata ever leaves your machine.**
 
 > **macOS only.** It reads your Apple Photos library through PhotoKit, so it can't be
 > Dockerized or run on Linux — it's a native macOS app you self-host on your own Mac.
@@ -72,21 +72,28 @@ Or run it directly without the app bundle:
   [`osxphotos`](https://github.com/RhetTbull/osxphotos), `pillow`, `pillow-heif`,
   `pyobjc-framework-Photos`, and (via Homebrew) `ffmpeg` + `exiftool` for the Compress feature.
 
-## Access it from your iPhone (optional)
+## Remote access (optional, advanced)
 
-The app binds to `localhost` only. To reach it from your phone, share it across your private
-[Tailscale](https://tailscale.com) tailnet (HTTPS, your devices only — never the public internet):
+The app binds to `127.0.0.1` only — it's not reachable off your Mac out of the box. To use it
+from your phone or another machine, **front it with your own access layer**, the same way you'd
+expose any self-hosted service. It's deliberately access-layer agnostic; pick whichever you
+already run:
+
+- **Mesh VPN** — Tailscale, WireGuard, Netbird (tailnet-only, no public exposure).
+- **Reverse proxy with TLS** — Caddy, nginx, or Traefik terminating HTTPS in front of `:8421`.
+- **SSH tunnel** — `ssh -L 8421:localhost:8421 your-mac` for one-off access.
+
+Whenever the port leaves loopback, **set an access token** first — it's a thin shared-secret
+gate, defense-in-depth on top of (never instead of) your VPN/TLS:
 
 ```bash
-# Set an access token first (recommended whenever you expose beyond localhost):
 export PHOTO_SAVER_TOKEN="$(openssl rand -hex 16)"; echo "$PHOTO_SAVER_TOKEN"
-# launch the app with that env var set, then:
-tailscale serve --bg 8421
+# launch the app (or install-agent.sh) with that env var set, then visit:
+#   https://<your-host>/?token=YOUR_TOKEN   (sets a cookie; later visits don't need it)
 ```
 
-Then open `https://<your-mac>.<your-tailnet>.ts.net/?token=YOUR_TOKEN` on your phone (it sets a
-cookie, so later visits don't need the token) and **Add to Home Screen**. Turn the share off
-with `tailscale serve --https=443 off`. See [SECURITY.md](SECURITY.md).
+**Never put it on the raw public internet** (no port-forward, no Tailscale Funnel). See
+[SECURITY.md](SECURITY.md).
 
 ## Run it always-on (optional)
 
@@ -105,15 +112,16 @@ bash install-agent.sh --uninstall                  # remove it
   like any local app.
 - **Set `PHOTO_SAVER_TOKEN`** before exposing the port anywhere. With it set, every request
   needs the token (`?token=`, `X-Auth-Token` header, or the `ps_token` cookie) or gets `401`.
-- Prefer a private network (Tailscale) over public exposure. Full details in
-  [SECURITY.md](SECURITY.md).
+- This is a single-user personal tool, not a multi-user server — the token is a thin gate, not a
+  TLS/auth replacement. Keep it behind a VPN or reverse proxy; never expose it publicly. Full
+  details in [SECURITY.md](SECURITY.md).
 
 ## Privacy
 
 100% local. No analytics, no telemetry, and **no external network calls at runtime** — only the
-dependency installer (first run) and, if *you* enable it, Tailscale touch the network. The audit
-log, hash cache, and your keep/trash choices are plain files in your home folder
-(`~/.photos_dedup_*`, `~/.photo_saver_audit.jsonl`).
+dependency installer (first run) touches the network. The audit log, hash cache, and your
+keep/trash choices are plain files in your home folder (`~/.photos_dedup_*`,
+`~/.photo_saver_audit.jsonl`).
 
 ## How it works
 
