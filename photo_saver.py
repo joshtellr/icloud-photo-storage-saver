@@ -40,6 +40,19 @@ DECISIONS_LOCK = threading.Lock()   # guards concurrent read/write of the decisi
 PORT = 8421
 MAX_POST_BYTES = 2 * 1024 * 1024    # reject POST bodies larger than this (DoS guard)
 
+# Optional access token. If PHOTO_SAVER_TOKEN is set, every request must carry it
+# (via ?token=, an X-Auth-Token header, or the ps_token cookie). Off by default —
+# safe for localhost; strongly recommended when exposing beyond your own machine.
+AUTH_TOKEN = os.environ.get("PHOTO_SAVER_TOKEN", "").strip()
+
+AUTH_PAGE = (
+    "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>"
+    "<body style='background:#0a0d14;color:#e2e8f0;font-family:-apple-system,sans-serif;"
+    "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center'>"
+    "<div><div style='font-size:40px'>🔒</div><h2>Token required</h2>"
+    "<p style='color:#94a3b8'>Open this page with <code>?token=YOUR_TOKEN</code> in the URL.</p></div>"
+)
+
 
 def read_decisions():
     """Read the saved decisions dict; thread-safe, tolerant of a missing/corrupt file."""
@@ -2231,9 +2244,20 @@ def photo_source(uuid):
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path == "/":
-            self._send(200, "text/html; charset=utf-8", HTML.encode())
-        elif self.path == "/clusters":
+        route = self.path.split("?")[0]
+        if not self._authed():
+            if route == "/":
+                self._send(401, "text/html; charset=utf-8", AUTH_PAGE.encode())
+            else:
+                self._send(401, "application/json", b'{"error":"unauthorized"}')
+            return
+        if route == "/":
+            # If the token came via ?token=, drop a cookie so reloads work without it.
+            extra = []
+            if AUTH_TOKEN and self._query_token() == AUTH_TOKEN:
+                extra = [("Set-Cookie", f"ps_token={AUTH_TOKEN}; Path=/; SameSite=Lax")]
+            self._send(200, "text/html; charset=utf-8", HTML.encode(), extra_headers=extra)
+        elif route == "/clusters":
             accepts_gz = "gzip" in self.headers.get("Accept-Encoding", "")
             if accepts_gz and _clusters_gzip:
                 self.send_response(200)
@@ -2244,7 +2268,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(_clusters_gzip)
             else:
                 self._send(200, "application/json", json.dumps(CLUSTER_DATA).encode())
-        elif self.path == "/files":
+        elif route == "/files":
             accepts_gz = "gzip" in self.headers.get("Accept-Encoding", "")
             if accepts_gz and _files_gzip:
                 self.send_response(200)
@@ -2255,21 +2279,21 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(_files_gzip)
             else:
                 self._send(200, "application/json", json.dumps(FILES_DATA).encode())
-        elif self.path == "/status":
+        elif route == "/status":
             self._send(200, "application/json", json.dumps(get_state()).encode())
-        elif self.path == "/compress-status":
+        elif route == "/compress-status":
             with COMPRESS_LOCK:
                 self._send(200, "application/json", json.dumps(dict(COMPRESS_STATE)).encode())
-        elif self.path == "/audit":
+        elif route == "/audit":
             self._send(200, "application/json", json.dumps(audit_summary()).encode())
-        elif self.path == "/report":
+        elif route == "/report":
             self._send(200, "application/json", json.dumps(weekly_report()).encode())
-        elif self.path == "/decisions":
+        elif route == "/decisions":
             self._send(200, "application/json", json.dumps(read_decisions()).encode())
-        elif self.path.startswith("/thumb/"):
-            self._serve_thumb(self.path[7:].split("?")[0])
-        elif self.path.startswith("/open/"):
-            uuid = self.path[6:]
+        elif route.startswith("/thumb/"):
+            self._serve_thumb(route[7:])
+        elif route.startswith("/open/"):
+            uuid = route[6:]
             uuid = "".join(c for c in uuid if c in "0123456789ABCDEFabcdef-")
             # If PhotoKit has no handle on it, Photos can't navigate to it by id.
             if PK_ALL_UUIDS is not None and uuid not in PK_ALL_UUIDS:
@@ -2298,8 +2322,8 @@ class Handler(BaseHTTPRequestHandler):
                 print(f"/open failed: {result.stderr.strip()}")
                 self._send(200, "application/json", json.dumps(
                     {"ok": False, "error": "Couldn't open this item in Photos."}).encode())
-        elif self.path.startswith("/finddate/"):
-            date = "".join(c for c in self.path[len("/finddate/"):] if c in "0123456789-")
+        elif route.startswith("/finddate/"):
+            date = "".join(c for c in route[len("/finddate/"):] if c in "0123456789-")
             # Always copy the date to the clipboard (no permission needed) so the
             # user can paste into Photos' search even if GUI automation is blocked.
             try:
@@ -2335,6 +2359,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, "text/plain", b"Not found")
 
     def do_POST(self):
+        route = self.path.split("?")[0]
+        if not self._authed():
+            self._send(401, "application/json", b'{"error":"unauthorized"}')
+            return
         try:
             n = int(self.headers.get("Content-Length", 0))
         except ValueError:
@@ -2349,32 +2377,54 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, "application/json", b'{"error":"bad request body"}')
             return
 
-        if self.path == "/trash":
+        if route == "/trash":
             result = trash_photos(body.get("uuids", []))
             self._send(200, "application/json", json.dumps(result).encode())
-        elif self.path == "/compress":
+        elif route == "/compress":
             result = start_compress(body.get("uuids", []))
             self._send(200, "application/json", json.dumps(result).encode())
-        elif self.path == "/decisions":
+        elif route == "/decisions":
             try:
                 write_decisions(body)
                 self._send(200, "application/json", b'{"ok":true}')
             except Exception as e:
                 print(f"/decisions write failed: {e}")
                 self._send(500, "application/json", b'{"error":"could not save"}')
-        elif self.path == "/quit":
+        elif route == "/quit":
             self._send(200, "application/json", b'{"ok":true}')
             # Exit shortly after responding so the browser gets confirmation
             threading.Thread(target=lambda: (time.sleep(0.3), os._exit(0)), daemon=True).start()
         else:
             self._send(404, "application/json", b'{"error":"not found"}')
 
-    def _send(self, code, ctype, body):
+    def _send(self, code, ctype, body, extra_headers=None):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", len(body))
+        for k, v in (extra_headers or []):
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
+
+    # ── Optional token auth (active only when PHOTO_SAVER_TOKEN is set) ──
+    def _query_token(self):
+        if "?" in self.path:
+            from urllib.parse import parse_qs
+            return parse_qs(self.path.split("?", 1)[1]).get("token", [None])[0]
+        return None
+
+    def _authed(self):
+        if not AUTH_TOKEN:
+            return True
+        if self._query_token() == AUTH_TOKEN:
+            return True
+        if self.headers.get("X-Auth-Token") == AUTH_TOKEN:
+            return True
+        for part in self.headers.get("Cookie", "").split(";"):
+            part = part.strip()
+            if part.startswith("ps_token=") and part[len("ps_token="):] == AUTH_TOKEN:
+                return True
+        return False
 
     def _serve_thumb(self, uuid):
         photo = PHOTOS_BY_UUID.get(uuid)

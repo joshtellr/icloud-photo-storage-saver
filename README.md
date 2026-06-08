@@ -7,6 +7,9 @@ It runs a small web app on your Mac (`http://localhost:8421`) that you use from 
 including your **iPhone** over [Tailscale](https://tailscale.com). **Everything runs locally;
 no photo or metadata ever leaves your machine.**
 
+> **macOS only.** It reads your Apple Photos library through PhotoKit, so it can't be
+> Dockerized or run on Linux — it's a native macOS app you self-host on your own Mac.
+
 ![Large Files](docs/large-files.png)
 *Large Files — every item by size with a visual size bar; Keep / Compress / Delete per row.*
 
@@ -75,23 +78,56 @@ The app binds to `localhost` only. To reach it from your phone, share it across 
 [Tailscale](https://tailscale.com) tailnet (HTTPS, your devices only — never the public internet):
 
 ```bash
+# Set an access token first (recommended whenever you expose beyond localhost):
+export PHOTO_SAVER_TOKEN="$(openssl rand -hex 16)"; echo "$PHOTO_SAVER_TOKEN"
+# launch the app with that env var set, then:
 tailscale serve --bg 8421
 ```
 
-Then open `https://<your-mac>.<your-tailnet>.ts.net` on your phone (and "Add to Home Screen").
-Turn it off with `tailscale serve --https=443 off`.
+Then open `https://<your-mac>.<your-tailnet>.ts.net/?token=YOUR_TOKEN` on your phone (it sets a
+cookie, so later visits don't need the token) and **Add to Home Screen**. Turn the share off
+with `tailscale serve --https=443 off`. See [SECURITY.md](SECURITY.md).
 
 ## Run it always-on (optional)
 
-A LaunchAgent can keep it running so your phone can reach it anytime the Mac is on. See
-`setup.sh` / the docs for a `~/Library/LaunchAgents` plist that runs
-`osxphotos run photo_saver.py --no-open`.
+Keep it running so your phone can reach it anytime the Mac is on:
+
+```bash
+bash install-agent.sh                              # start at login, stay running
+PHOTO_SAVER_TOKEN=yourtoken bash install-agent.sh  # …with an access token
+bash install-agent.sh --uninstall                  # remove it
+```
+
+## Security
+
+- Binds **`127.0.0.1` only** by default — not reachable off your Mac unless you expose it.
+- Some endpoints are **destructive** (trash, compress). On loopback they're unauthenticated,
+  like any local app.
+- **Set `PHOTO_SAVER_TOKEN`** before exposing the port anywhere. With it set, every request
+  needs the token (`?token=`, `X-Auth-Token` header, or the `ps_token` cookie) or gets `401`.
+- Prefer a private network (Tailscale) over public exposure. Full details in
+  [SECURITY.md](SECURITY.md).
 
 ## Privacy
 
-100% local. No analytics, no network calls except the dependency installer on first run and
-(if *you* enable it) Tailscale. The audit log, hash cache, and your keep/trash choices are
-plain files in your home folder (`~/.photos_dedup_*`, `~/.photo_saver_audit.jsonl`).
+100% local. No analytics, no telemetry, and **no external network calls at runtime** — only the
+dependency installer (first run) and, if *you* enable it, Tailscale touch the network. The audit
+log, hash cache, and your keep/trash choices are plain files in your home folder
+(`~/.photos_dedup_*`, `~/.photo_saver_audit.jsonl`).
+
+## How it works
+
+- [**osxphotos**](https://github.com/RhetTbull/osxphotos) reads your Photos library database and
+  the local thumbnail derivatives — no iCloud downloads needed for analysis.
+- **Duplicates** are found by perceptual hashing (a 64-bit dHash per thumbnail) clustered with
+  union-find over exact matches plus near-matches within a time window. A per-cluster "tightness"
+  score yields the identical / near-identical / similar / loose confidence label.
+- **PhotoKit** (via PyObjC) classifies each photo's source and performs deletions (to the Photos
+  trash). Photos not in your own library are read-only.
+- **Compression** exports the original, re-encodes with `ffmpeg` to H.265 (copying metadata with
+  `exiftool`), re-imports the smaller copy, and trashes the original.
+- The UI is a single dependency-free HTML/JS page served by a stdlib `ThreadingHTTPServer`;
+  thumbnails are resized + LRU-cached in memory.
 
 ## Contributing / releases
 
