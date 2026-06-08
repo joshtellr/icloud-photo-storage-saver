@@ -23,8 +23,7 @@ MODE="${1:-all}"
 PYVER="${PS_PYVER:-3.12}"
 FFMPEG_URL="${PS_FFMPEG_URL:-https://www.osxexperts.net/ffmpeg71arm.zip}"
 FFPROBE_URL="${PS_FFPROBE_URL:-https://www.osxexperts.net/ffprobe71arm.zip}"
-EXIFTOOL_VER="${PS_EXIFTOOL_VER:-13.10}"
-EXIFTOOL_URL="${PS_EXIFTOOL_URL:-https://exiftool.org/Image-ExifTool-${EXIFTOOL_VER}.tar.gz}"
+EXIFTOOL_VER="${PS_EXIFTOOL_VER:-}"   # empty → auto-detect current version (exiftool.org/ver.txt)
 
 ensure_uv() {
   if ! command -v uv >/dev/null 2>&1; then
@@ -112,12 +111,24 @@ stage_binaries() {
   _fetch_unzip_one "$FFPROBE_URL" "$CACHE/ffprobe.zip" "$tmp" "ffprobe" "$BIN/ffprobe"
   chmod +x "$BIN/ffmpeg" "$BIN/ffprobe"
 
-  echo "→ exiftool $EXIFTOOL_VER…"
-  local ETAR="$CACHE/exiftool-$EXIFTOOL_VER.tar.gz"
-  [ -f "$ETAR" ] || curl -fsSL "$EXIFTOOL_URL" -o "$ETAR"
+  # exiftool: pin via PS_EXIFTOOL_VER, else auto-detect the current production
+  # version (exiftool.org serves only the latest at the predictable path, so a
+  # hard-pinned version 404s once a newer one ships).
+  local EVER="$EXIFTOOL_VER"
+  [ -n "$EVER" ] || EVER="$(curl -fsSL https://exiftool.org/ver.txt 2>/dev/null | tr -d '[:space:]')"
+  [ -n "$EVER" ] || { echo "✗ couldn't determine exiftool version — set PS_EXIFTOOL_VER"; exit 1; }
+  echo "→ exiftool $EVER…"
+  local ETAR="$CACHE/exiftool-$EVER.tar.gz"
+  if [ ! -s "$ETAR" ]; then
+    # exiftool.org (current only) first, then the GitHub tag mirror (all versions).
+    curl -fsSL "${PS_EXIFTOOL_URL:-https://exiftool.org/Image-ExifTool-$EVER.tar.gz}" -o "$ETAR" \
+      || curl -fsSL "https://github.com/exiftool/exiftool/archive/refs/tags/$EVER.tar.gz" -o "$ETAR" \
+      || { echo "✗ exiftool $EVER download failed — set PS_EXIFTOOL_VER or PS_EXIFTOOL_URL"; rm -f "$ETAR"; exit 1; }
+  fi
   rm -rf "$tmp/exiftool-src"; mkdir -p "$tmp/exiftool-src"
-  tar -xzf "$ETAR" -C "$tmp/exiftool-src" --strip-components=1
   # exiftool is a perl script that finds its `lib` next to itself; ship both.
+  # Both tarballs nest one top dir (Image-ExifTool-* or exiftool-*); strip it.
+  tar -xzf "$ETAR" -C "$tmp/exiftool-src" --strip-components=1
   cp "$tmp/exiftool-src/exiftool" "$BIN/exiftool"
   rm -rf "$BIN/lib"; cp -R "$tmp/exiftool-src/lib" "$BIN/lib"
   chmod +x "$BIN/exiftool"
