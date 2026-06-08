@@ -29,6 +29,7 @@ python -m pytest
 | HTTP layer | `test_http.py` | `Handler` routing, `_authed`/`_query_token`, POST hardening, `/open` & `/finddate` sanitization |
 | Trash flow | `test_trash.py` | `trash_photos` (library-only filtering, already-gone healing, user-cancel, finalize) |
 | Compress flow | `test_compress.py` | `start_compress`, `_video_duration`, `_compress_one` (export/not-smaller/import guards) |
+| Thumbnail cache | `test_thumbnails.py` | `get_thumb_bytes` (JPEG gen, LRU eviction/recency), `prewarm_thumbnails` |
 
 `test_decisions.py` and `test_prune_payloads.py` include regression coverage for
 the "trashed photos reappearing after refresh" fix (commit 4ed2cf6).
@@ -53,6 +54,5 @@ paths run — and gate on — Linux CI.
 
 ## Not yet covered (good next steps)
 
-- `get_thumb_bytes` LRU eviction and `prewarm_thumbnails` cache behavior.
 - `process_library` orchestration (would need a fake osxphotos `PhotosDB`).
 - The client-side JS in the embedded `HTML` string.
