@@ -269,3 +269,37 @@ def test_open_unreachable_uuid_returns_error_without_shelling_out(server, fake_s
     assert status == 200
     assert json.loads(body)["ok"] is False
     assert fake_subprocess == []  # never reached osascript
+
+
+# ── Full Disk Access guidance ────────────────────────────────────────────────
+
+def test_open_fda_invokes_open_settings(server, monkeypatch):
+    calls = []
+    monkeypatch.setattr(ps.subprocess, "run", lambda *a, **k: calls.append(a[0]))
+    status, headers, body = _request(server + "/open-fda")
+    assert status == 200
+    assert json.loads(body) == {"ok": True}
+    # It opened the Full Disk Access pane of System Settings.
+    assert any("Privacy_AllFiles" in " ".join(c) for c in calls)
+
+
+def test_rescan_triggers_process_library(server, monkeypatch):
+    import time
+    ran = []
+    monkeypatch.setattr(ps, "RUN_ARGS", object())
+    monkeypatch.setattr(ps, "process_library", lambda args: ran.append(args))
+    status, _, body = _request(server + "/rescan", method="POST")
+    assert status == 200
+    assert json.loads(body) == {"ok": True}
+    for _ in range(100):           # scan runs on a background thread
+        if ran:
+            break
+        time.sleep(0.01)
+    assert ran                     # process_library was invoked
+
+
+def test_rescan_noop_without_run_args(server, monkeypatch):
+    monkeypatch.setattr(ps, "RUN_ARGS", None)
+    status, _, body = _request(server + "/rescan", method="POST")
+    assert status == 200
+    assert json.loads(body) == {"ok": True}

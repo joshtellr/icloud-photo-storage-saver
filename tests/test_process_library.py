@@ -119,3 +119,43 @@ def test_process_library_records_error_on_failure(
     ps.process_library(_args())
     assert ps.STATE["phase"] == "error"
     assert "db unavailable" in ps.STATE["error"]
+
+
+# ── Full Disk Access detection ───────────────────────────────────────────────
+
+def test_is_fda_error_recognizes_the_telltale_failures():
+    assert ps._is_fda_error(PermissionError("Operation not permitted"))
+    assert ps._is_fda_error(Exception(
+        "Error copying /Users/x/Pictures/Photos Library.photoslibrary/"
+        "database/Photos.sqlite to /tmp/osxphotos_x/Photos.sqlite"))
+    assert not ps._is_fda_error(ValueError("something unrelated"))
+
+
+def test_process_library_flags_full_disk_access(state_files, monkeypatch):
+    # osxphotos raises the 'copying … Photos.sqlite' error when it can't read the
+    # TCC-protected library DB — i.e. Full Disk Access is missing.
+    class PhotosDB:
+        def __init__(self, *a, **k):
+            raise Exception(
+                "Error copying /Users/x/Pictures/Photos Library.photoslibrary/"
+                "database/Photos.sqlite to /tmp/osxphotos_x/Photos.sqlite")
+    mod = types.ModuleType("osxphotos"); mod.PhotosDB = PhotosDB
+    monkeypatch.setitem(sys.modules, "osxphotos", mod)
+
+    ps.process_library(_args())
+
+    assert ps.STATE["phase"] == "error"
+    assert ps.STATE["needs_fda"] is True
+
+
+def test_process_library_other_error_not_flagged_as_fda(state_files, monkeypatch):
+    class PhotosDB:
+        def __init__(self, *a, **k):
+            raise ValueError("something unrelated broke")
+    mod = types.ModuleType("osxphotos"); mod.PhotosDB = PhotosDB
+    monkeypatch.setitem(sys.modules, "osxphotos", mod)
+
+    ps.process_library(_args())
+
+    assert ps.STATE["phase"] == "error"
+    assert ps.STATE["needs_fda"] is False

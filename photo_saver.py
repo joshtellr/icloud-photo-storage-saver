@@ -1636,8 +1636,30 @@ async function boot() {
     try { s = await fetch('/status').then(r=>r.json()); }
     catch(e) { await sleep(600); continue; }
     if (s.phase === 'error') {
-      document.getElementById('loading').innerHTML =
-        `<div style="color:#f87171">Error: ${s.error||'unknown'}</div>`;
+      const el = document.getElementById('loading');
+      if (s.needs_fda) {
+        el.innerHTML = `
+          <div style="max-width:470px;margin:0 auto;text-align:center">
+            <div style="font-size:42px">🔒</div>
+            <div style="font-size:18px;font-weight:700;margin:10px 0 6px">Full Disk Access needed</div>
+            <div style="font-size:13px;color:#94a3b8;line-height:1.55">
+              macOS protects your Photos library, so this app needs <b>Full Disk Access</b> to scan it.
+              It's the one permission macOS won't ask for on its own — nothing leaves your Mac.
+            </div>
+            <ol style="text-align:left;display:inline-block;font-size:13px;color:#cbd5e1;line-height:1.8;margin:16px auto">
+              <li>Click <b>Open Full Disk Access</b> below.</li>
+              <li>Turn on <b>iCloud Photo Storage Saver</b> (click <b>+</b> and pick it from Applications if it isn't listed).</li>
+              <li>Come back here and click <b>Retry</b>.</li>
+            </ol>
+            <div style="margin-top:6px;display:flex;gap:10px;justify-content:center">
+              <button onclick="openFDA()" style="background:#3b82f6;color:#fff;border:0;border-radius:7px;padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer">Open Full Disk Access</button>
+              <button onclick="retryScan(this)" style="background:#1e2535;color:#cbd5e1;border:0;border-radius:7px;padding:9px 16px;font-size:13px;cursor:pointer">Retry</button>
+            </div>
+            <div style="font-size:11px;color:#475569;margin-top:16px">If Retry still fails, quit and reopen the app after enabling it.</div>
+          </div>`;
+      } else {
+        el.innerHTML = `<div style="color:#f87171">Error: ${s.error||'unknown'}</div>`;
+      }
       return;
     }
     if (s.ready) break;
@@ -1647,6 +1669,17 @@ async function boot() {
   const data = await fetch('/clusters').then(r=>r.json());
   init(data);
   resumeCompressIfRunning();   // pick up an in-progress compression after a refresh
+}
+
+// Open System Settings → Full Disk Access (the app shells out to `open`).
+async function openFDA(){ try{ await fetch('/open-fda'); }catch(e){} }
+
+// Re-run the scan after the user grants Full Disk Access, then resume the boot poll.
+async function retryScan(btn){
+  if (btn) { btn.disabled = true; btn.textContent = 'Retrying…'; }
+  try { await fetch('/rescan', {method:'POST'}); } catch(e){}
+  document.getElementById('loading').innerHTML = '<span class="spinner"></span>Rescanning…';
+  boot();
 }
 
 // ── Large Files tab ───────────────────────────────────────────────────────────
@@ -2245,8 +2278,14 @@ STATE = {
     "total_clusters": 0,
     "total_dupes": 0,
     "error": "",
+    "needs_fda": False,     # True when the scan failed for lack of Full Disk Access
 }
 STATE_LOCK = threading.Lock()
+
+# Re-run args for the /rescan endpoint (set in main()).
+RUN_ARGS = None
+# Guard so a Retry/Rescan can't start a second scan that clobbers shared globals.
+_PROCESSING = threading.Lock()
 
 
 def set_state(**kw):
@@ -2326,6 +2365,15 @@ class Handler(BaseHTTPRequestHandler):
             if AUTH_TOKEN and self._query_token() == AUTH_TOKEN:
                 extra = [("Set-Cookie", f"ps_token={AUTH_TOKEN}; Path=/; SameSite=Lax")]
             self._send(200, "text/html; charset=utf-8", HTML.encode(), extra_headers=extra)
+        elif route == "/open-fda":
+            # Open System Settings → Privacy & Security → Full Disk Access for the user.
+            try:
+                subprocess.run(
+                    ["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"],
+                    check=False)
+                self._send(200, "application/json", b'{"ok":true}')
+            except Exception:
+                self._send(500, "application/json", b'{"error":"could not open settings"}')
         elif route == "/clusters":
             accepts_gz = "gzip" in self.headers.get("Accept-Encoding", "")
             if accepts_gz and _clusters_gzip:
@@ -2459,6 +2507,13 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 print(f"/decisions write failed: {e}")
                 self._send(500, "application/json", b'{"error":"could not save"}')
+        elif route == "/rescan":
+            # Re-run the scan (e.g. after the user grants Full Disk Access). The
+            # _PROCESSING guard makes a second concurrent scan a no-op.
+            if RUN_ARGS is not None:
+                threading.Thread(target=process_library, args=(RUN_ARGS,),
+                                 daemon=True, name="rescan").start()
+            self._send(200, "application/json", b'{"ok":true}')
         elif route == "/quit":
             self._send(200, "application/json", b'{"ok":true}')
             # Exit shortly after responding so the browser gets confirmation
@@ -2517,14 +2572,34 @@ class Handler(BaseHTTPRequestHandler):
 
 # ─── Library processing ───────────────────────────────────────────────────────
 
+def _is_fda_error(e):
+    """True when an exception is the telltale 'can't read the Photos library'
+    failure that means the app lacks Full Disk Access. macOS never prompts for
+    FDA, so we detect it and guide the user instead of showing a raw copy error."""
+    msg = str(e).lower()
+    return (isinstance(e, PermissionError)
+            or "operation not permitted" in msg
+            or ("copying" in msg and "photos.sqlite" in msg))
+
+
 def process_library(args):
-    """Load → hash → cluster → compress. Updates STATE throughout.
-    Safe to call again (e.g. Rescan from the menu bar)."""
+    """Run one scan at a time. A guard so a Retry/Rescan can't start a second
+    scan that would clobber the shared globals mid-flight."""
+    if not _PROCESSING.acquire(blocking=False):
+        return
+    try:
+        _process_library_impl(args)
+    finally:
+        _PROCESSING.release()
+
+
+def _process_library_impl(args):
+    """Load → hash → cluster → compress. Updates STATE throughout."""
     global CLUSTER_DATA, FILES_DATA, PHOTOS_BY_UUID, _clusters_gzip, _files_gzip, _thumb_cache
     global LIBRARY_UUIDS, PK_ALL_UUIDS, HIDDEN_UUIDS
     try:
         import osxphotos
-        set_state(phase="loading", detail="Loading Photos library…", progress=0, ready=False, error="")
+        set_state(phase="loading", detail="Loading Photos library…", progress=0, ready=False, error="", needs_fda=False)
         print("Loading Photos library…", flush=True)
         db = osxphotos.PhotosDB()
         photos = db.photos()
@@ -2603,7 +2678,13 @@ def process_library(args):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        set_state(phase="error", detail=f"Error: {e}", error=str(e), ready=False)
+        if _is_fda_error(e):
+            set_state(phase="error", ready=False, needs_fda=True,
+                      detail="Full Disk Access required",
+                      error="Full Disk Access is required to read your Photos library.")
+        else:
+            set_state(phase="error", detail=f"Error: {e}", error=str(e),
+                      ready=False, needs_fda=False)
 
 
 def start_server():
@@ -2621,6 +2702,8 @@ def main():
     parser.add_argument("--window",    type=int, default=60, help="Time window in seconds for near-dup search (default 60)")
     parser.add_argument("--no-open",   action="store_true", help="Don't auto-open the browser")
     args = parser.parse_args()
+    global RUN_ARGS
+    RUN_ARGS = args   # so /rescan can re-run the scan after granting Full Disk Access
 
     # When launched as a GUI app (the .app bundle), the framework Python would
     # otherwise show a stray icon in the Dock. Suppress it — the browser tab is
