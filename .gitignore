@@ -11,6 +11,11 @@ __pycache__/
 *.pyo
 .pytest_cache/
 
+# Signing secrets — never commit
+*.p8
+*.cer
+*.p12
+
 # macOS
 .DS_Store
 

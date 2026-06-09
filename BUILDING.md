@@ -60,21 +60,37 @@ bash setup.sh --deps-only                    # user-level osxphotos + libs via u
 ~/.local/bin/osxphotos run photo_saver.py    # http://localhost:8421
 ```
 
-## Signing & notarization (planned — Part B)
+## Signing & notarization
 
-The app is **not yet code-signed**, so first launch still needs the
-right-click → Open → Open Gatekeeper step. Removing it requires an Apple
-**Developer ID Application** certificate and notarization:
+Release builds are **Developer ID signed + Apple notarized**, so they open with no Gatekeeper
+warning (no right-click step). `build_dmg.sh` runs this automatically when a Developer ID cert
+is in your keychain — it calls `sign_and_notarize.sh`, which:
 
-1. Sign every nested Mach-O (the bundled `ffmpeg`/`ffprobe`, the Python dylibs
-   and C-extension `.so` files), then the `.app`, with the **hardened runtime**
-   (`codesign --options runtime`) and an entitlements plist that includes
-   `com.apple.security.cs.disable-library-validation` (so the embedded Python can
-   load third-party extensions).
-2. `xcrun notarytool submit dist/…dmg --wait`, then `xcrun stapler staple`.
+1. Signs every nested Mach-O inside-out (bundled `ffmpeg`/`ffprobe`, the Python interpreter and
+   its C-extension `.so`/`.dylib`) with the **hardened runtime** + secure timestamp, applying
+   `entitlements.plist` to the executables. The entitlements include
+   `com.apple.security.cs.disable-library-validation` (so the embedded Python can load
+   third-party extensions) and `com.apple.security.automation.apple-events` (drive Photos).
+2. Signs the `.app` last. The bundle's main executable is a tiny compiled Mach-O stub
+   (`launcher.c` → `Contents/MacOS/launcher`, which execs `Resources/launch.sh`) — a shell
+   script can't carry entitlements/hardened-runtime, which would block notarization.
+3. `xcrun notarytool submit … --wait` then `xcrun stapler staple` — for both the app (before
+   packaging) and the finished DMG, so the app is valid even on an offline first launch.
 
-This step runs on your Mac with your Developer ID and an app-specific password
-(read from env, never committed). It will land as a `sign_and_notarize.sh` script
-wired into `build_dmg.sh`.
+### One-time setup
+
+1. Create a **Developer ID Application** certificate. Xcode's "Apple Accounts" pane may only
+   offer "Apple Development" — if so, use the portal: generate a CSR
+   (`openssl req -new -newkey rsa:2048 -nodes -keyout devid.key -out devid.csr -subj "/CN=Your Name/C=US"`),
+   upload it at <https://developer.apple.com/account/resources/certificates/add> → *Developer ID
+   Application*, download the `.cer`, then import it paired with the key (note OpenSSL 3 needs
+   `-legacy`): `openssl pkcs12 -export -legacy -inkey devid.key -in devid.cer.pem -out id.p12`
+   then `security import id.p12 -T /usr/bin/codesign`.
+2. Store notary credentials once:
+   `xcrun notarytool store-credentials icps-notary --apple-id <id> --team-id <TEAM> --password <app-specific-password>`
+   (override the profile name via `NOTARY_PROFILE`).
+
+Then every release is just `bash build_dmg.sh`. Verify with
+`spctl -a -vvv -t install dist/iCloudPhotoStorageSaver.dmg` → *accepted, Notarized Developer ID*.
 
 [python-build-standalone]: https://github.com/astral-sh/python-build-standalone
