@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- The bundled Python loads third-party C-extensions (pillow-heif, pyobjc, …)
+       whose .so/.dylib are signed by us, not Apple. Without this, the hardened
+       runtime refuses to load them and the app dies on import. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+
+  <!-- The app sends Apple Events to Photos (spotlight an item, find-by-date) and
+       to System Events. Required for the Automation TCC prompt under hardened runtime. -->
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
+</dict>
+</plist>

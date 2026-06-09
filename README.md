@@ -48,9 +48,12 @@ the app only ever acts on photos you actually own and can delete.
 
 1. Download the latest **`.dmg`** from [Releases](https://github.com/joshtellr/icloud-photo-storage-saver/releases).
 2. Open it and drag **iCloud Photo Storage Saver** onto **Applications**.
-3. It's not code-signed yet, so the first time: **right-click the app → Open → Open** (once).
-4. On first launch it asks for **Photos access** and **Automation** permission — approve both.
-   (Everything it needs is bundled — no Terminal, no Homebrew, no separate install.)
+3. Double-click to open. (Release builds are **signed with a Developer ID and notarized by
+   Apple**, so there's no "unidentified developer" warning and no right-click step.)
+4. On first launch macOS asks for **Photos access** and **Automation** permission — approve
+   both. These prompts are required by macOS for *any* app that touches your photos; they
+   can't be removed, but nothing leaves your Mac. (Everything else it needs is bundled —
+   no Terminal, no Homebrew, no separate install.)
 5. It opens `http://localhost:8421`. That's the app.
 
 ## Install from source
@@ -65,7 +68,8 @@ open "/Applications/iCloud Photo Storage Saver.app"
 `setup.sh` stages a private Python plus `ffmpeg`/`ffprobe`/`exiftool` *inside* the
 `.app` (arm64), so the built app needs nothing on the end user's Mac. The build
 itself needs network access and [`uv`](https://github.com/astral-sh/uv) (auto-installed).
-See [BUILDING.md](BUILDING.md) for details and the planned signing/notarization step.
+A source build is unsigned (Gatekeeper will ask you to right-click → Open once). Signed,
+notarized release builds come from `build_dmg.sh` — see [BUILDING.md](BUILDING.md).
 
 Or run it directly from source without building the bundle:
 
@@ -153,8 +157,14 @@ Issues and PRs welcome. Cut a release by running `bash build_dmg.sh` and attachi
 `dist/iCloudPhotoStorageSaver.dmg` to a GitHub Release. See [BUILDING.md](BUILDING.md)
 for how the self-contained runtime is staged and how to override the bundled components.
 
-A signed + notarized build (so the app opens without the right-click step) needs an Apple
-Developer ID — that's the planned next step (Part B in BUILDING.md).
+Release builds are **signed with a Developer ID and notarized by Apple** so they open with no
+Gatekeeper warning — `build_dmg.sh` does the signing + notarization automatically when a
+Developer ID cert is in your keychain. See [BUILDING.md](BUILDING.md) for the one-time setup.
+
+> **App Store:** not a supported target. The Mac App Store requires the App Sandbox
+> (incompatible with reading the Photos library DB directly, running ffmpeg/exiftool/osxphotos,
+> and AppleScript automation of Photos) and forbids GPL apps bundling GPL ffmpeg. Developer ID
+> notarization is the distribution path.
 
 ## License
 

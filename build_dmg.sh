@@ -38,6 +38,13 @@ fi
 STAGE="$(mktemp -d)/stage"
 mkdir -p "$STAGE"
 APP_DEST="$STAGE" bash "$SRC_DIR/setup.sh" --build-only
+
+# Developer ID sign + notarize + staple the staged app BEFORE packaging, so it
+# carries its own notarization ticket (opens even on an offline first launch).
+# Auto-degrades to sign-only if no Developer ID cert is in the keychain.
+bash "$SRC_DIR/sign_and_notarize.sh" "$STAGE/$APP" || \
+  echo "⚠ app signing skipped/failed — DMG will be unsigned"
+
 mkdir -p "$STAGE/.background"
 cp "$BG_TIFF" "$STAGE/.background/background.tiff"
 ln -s /Applications "$STAGE/Applications"
@@ -104,3 +111,7 @@ rm -rf "$(dirname "$STAGE")" "$(dirname "$RW")"
 
 echo ""
 echo "✓ Built $DMG"
+
+# Sign + notarize + staple the DMG itself (no-op past signing without a cert).
+bash "$SRC_DIR/sign_and_notarize.sh" "$DMG" || \
+  echo "⚠ DMG notarization skipped/failed — see output above"

@@ -163,22 +163,32 @@ build_app() {
   <key>CFBundleName</key><string>iCloud Photo Storage Saver</string>
   <key>CFBundleDisplayName</key><string>iCloud Photo Storage Saver</string>
   <key>CFBundleIdentifier</key><string>com.local.icloudphotostoragesaver</string>
-  <key>CFBundleVersion</key><string>1.0</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1.1</string>
+  <key>CFBundleShortVersionString</key><string>1.1</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>launcher</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <!-- Browser-based UI: run as an agent, no Dock icon. -->
+  <key>LSUIElement</key><true/>
+  <!-- TCC prompt copy. Required for clean Photos + Automation permission dialogs. -->
+  <key>NSPhotoLibraryUsageDescription</key><string>iCloud Photo Storage Saver scans your library to find duplicate and oversized photos and videos so you can reclaim iCloud storage. Nothing leaves your Mac.</string>
+  <key>NSAppleEventsUsageDescription</key><string>iCloud Photo Storage Saver opens items you pick in Photos and helps you find them by date.</string>
+  <key>NSHumanReadableCopyright</key><string>© 2026 Joshua Teller. Licensed under GPL-3.0.</string>
 </dict>
 </plist>
 PLIST
 
-  cat > "$APP/Contents/MacOS/launcher" <<'LAUNCHER'
+  # The bundle's MAIN executable must be a Mach-O so the hardened runtime +
+  # code-signing entitlements attach to it (a shell script can't carry them, which
+  # blocks notarization). So the launch logic lives in Resources/launch.sh and a
+  # tiny compiled stub (launcher.c) execs it.
+  cat > "$APP/Contents/Resources/launch.sh" <<'LAUNCHER'
 #!/bin/bash
-# Self-locating launcher for iCloud Photo Storage Saver.
+# Self-locating launch logic for iCloud Photo Storage Saver.
 # The bundle is self-contained: bundled Python + ffmpeg/ffprobe/exiftool/osxphotos.
-RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
+RES="$(cd "$(dirname "$0")" && pwd)"
 LOG="$HOME/.photos_dedup.log"
 PY="$RES/python/bin/python3"
 SCRIPT="$RES/photo_saver.py"
@@ -205,6 +215,8 @@ if [ -z "$OSX" ] || [ ! -f "$SCRIPT" ]; then
 fi
 exec "$OSX" run "$SCRIPT" >> "$LOG" 2>&1
 LAUNCHER
+  chmod +x "$APP/Contents/Resources/launch.sh"
+  cc -O2 -arch arm64 -o "$APP/Contents/MacOS/launcher" "$SRC_DIR/launcher.c"
   chmod +x "$APP/Contents/MacOS/launcher"
 
   # Bundle the app script.
