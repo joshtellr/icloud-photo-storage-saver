@@ -163,8 +163,8 @@ build_app() {
   <key>CFBundleName</key><string>iCloud Photo Storage Saver</string>
   <key>CFBundleDisplayName</key><string>iCloud Photo Storage Saver</string>
   <key>CFBundleIdentifier</key><string>com.local.icloudphotostoragesaver</string>
-  <key>CFBundleVersion</key><string>1.1</string>
-  <key>CFBundleShortVersionString</key><string>1.1</string>
+  <key>CFBundleVersion</key><string>1.2.0</string>
+  <key>CFBundleShortVersionString</key><string>1.2.0</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>launcher</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
