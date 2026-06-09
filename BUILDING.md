@@ -46,8 +46,8 @@ without editing the script:
 | `PS_PYVER`         | `3.12`                                               | bundled Python version      |
 | `PS_FFMPEG_URL`    | osxexperts.net static arm64 zip                      | `ffmpeg` source             |
 | `PS_FFPROBE_URL`   | osxexperts.net static arm64 zip                      | `ffprobe` source            |
-| `PS_EXIFTOOL_VER`  | `13.10`                                              | ExifTool version            |
-| `PS_EXIFTOOL_URL`  | `https://exiftool.org/Image-ExifTool-$VER.tar.gz`    | ExifTool tarball            |
+| `PS_EXIFTOOL_VER`  | auto (from `exiftool.org/ver.txt`)                   | pin a specific ExifTool version |
+| `PS_EXIFTOOL_URL`  | exiftool.org, then GitHub tag mirror                 | ExifTool tarball            |
 | `PS_THIN_BUILD=1`  | (off)                                                | skip staging — fast dev build that relies on a user-level `osxphotos` (see `setup.sh --deps-only`) |
 
 If a download doesn't contain the expected binary the build fails loudly with the

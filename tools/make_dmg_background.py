@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw, ImageFont
 W, H = 620, 430
 APP_X, ICON_Y = 165, 205        # center of the app icon
 APPS_X = 455                    # center of the Applications shortcut
-DOCS = Path(__file__).resolve().parent / "docs"
+DOCS = Path(__file__).resolve().parent.parent / "docs"
 
 BG_TOP = (247, 248, 250)        # soft light gradient (fixed; looks fine in dark mode too)
 BG_BOT = (233, 236, 241)

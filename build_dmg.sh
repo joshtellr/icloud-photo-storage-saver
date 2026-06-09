@@ -19,7 +19,7 @@ DIST="$SRC_DIR/dist"
 DMG="$DIST/iCloudPhotoStorageSaver.dmg"
 BG_TIFF="$SRC_DIR/docs/dmg-background.tiff"
 
-# Window + icon geometry — must match make_dmg_background.py.
+# Window + icon geometry — must match tools/make_dmg_background.py.
 WIN_W=620; WIN_H=430
 APP_X=165; APPS_X=455; ICON_Y=205
 ICON_SIZE=128
@@ -31,7 +31,7 @@ if [ ! -f "$BG_TIFF" ]; then
   PY="$(ls "$HOME"/.local/share/uv/tools/osxphotos/bin/python* 2>/dev/null | head -1)"
   [ -x "$PY" ] || PY="python3"
   echo "→ generating DMG background…"
-  "$PY" "$SRC_DIR/make_dmg_background.py"
+  "$PY" "$SRC_DIR/tools/make_dmg_background.py"
 fi
 
 # Stage the app into a fresh read-write DMG we can style, then compress at the end.
