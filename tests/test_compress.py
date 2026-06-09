@@ -150,3 +150,50 @@ def test_compress_one_raises_on_failed_import(compress_env, make_photo):
     photo = make_photo("v", original_filesize=1000, ismovie=True)
     with pytest.raises(RuntimeError, match="import failed"):
         ps._compress_one("v", photo)
+
+
+# ── compress_worker ──────────────────────────────────────────────────────────
+
+@pytest.fixture
+def reset_compress_state():
+    snapshot = dict(ps.COMPRESS_STATE)
+    yield
+    ps.COMPRESS_STATE.clear()
+    ps.COMPRESS_STATE.update(snapshot)
+
+
+def test_compress_worker_aggregates_results(reset_compress_state, state_files, monkeypatch, make_photo):
+    monkeypatch.setattr(ps, "PHOTOS_BY_UUID", {
+        "ok": make_photo("ok", original_filesize=1000, original_filename="ok.mov"),
+        "bad": make_photo("bad", original_filesize=500, original_filename="bad.mov"),
+        # "missing" is intentionally absent from PHOTOS_BY_UUID
+    })
+
+    def fake_compress_one(uuid, photo):
+        if uuid == "bad":
+            raise RuntimeError("ffmpeg failed")
+        return 600
+
+    monkeypatch.setattr(ps, "_compress_one", fake_compress_one)
+
+    ps.compress_worker(["ok", "bad", "missing"])
+
+    st = ps.COMPRESS_STATE
+    assert st["running"] is False and st["finished"] is True
+    assert st["done"] == 3
+    assert st["saved_bytes"] == 600
+    assert st["trashed_uuids"] == ["ok"]
+    assert len(st["errors"]) == 2          # "bad" failed + "missing" not found
+
+
+def test_compress_worker_logs_audit_for_success(reset_compress_state, state_files, monkeypatch, make_photo):
+    monkeypatch.setattr(ps, "PHOTOS_BY_UUID",
+                        {"ok": make_photo("ok", original_filesize=1000, original_filename="ok.mov")})
+    monkeypatch.setattr(ps, "_compress_one", lambda u, p: 700)
+
+    ps.compress_worker(["ok"])
+
+    events = [e for e in ps.read_audit() if e.get("type") == "compress"]
+    assert len(events) == 1
+    assert events[0]["saved_bytes"] == 700
+    assert events[0]["orig_bytes"] == 1000
