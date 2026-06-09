@@ -8,9 +8,13 @@ Python HTTP server + an embedded HTML/CSS/JS frontend in one string.
 ```bash
 git clone https://github.com/joshtellr/icloud-photo-storage-saver.git
 cd icloud-photo-storage-saver
-bash setup.sh                     # installs deps (uv, osxphotos, pillow, ffmpeg, exiftool)
+bash setup.sh --deps-only         # user-level dev deps (uv, osxphotos, pillow, ffmpeg, exiftool)
 ~/.local/bin/osxphotos run photo_saver.py     # open http://localhost:8421
 ```
+
+`bash setup.sh` (no flag) builds the self-contained `.app`; `bash build_dmg.sh`
+builds the distributable DMG. See [BUILDING.md](BUILDING.md). Build-time art
+generators live in `tools/`.
 
 Useful flags: `--rescan`, `--threshold N`, `--window S`, `--no-open`.
 URL hashes: `#files`, `#activity`, `#blur` (blurs thumbnails for screenshots).

@@ -211,10 +211,10 @@ LAUNCHER
   cp "$SRC_DIR/photo_saver.py" "$APP/Contents/Resources/photo_saver.py"
 
   # App icon (regenerate if a fresh checkout is missing it).
-  if [ ! -f "$SRC_DIR/docs/AppIcon.icns" ] && [ -f "$SRC_DIR/make_app_icon.py" ]; then
+  if [ ! -f "$SRC_DIR/docs/AppIcon.icns" ] && [ -f "$SRC_DIR/tools/make_app_icon.py" ]; then
     PY_ICON="$(ls "$HOME"/.local/share/uv/tools/osxphotos/bin/python* 2>/dev/null | head -1)"
     [ -x "$PY_ICON" ] || PY_ICON="python3"
-    "$PY_ICON" "$SRC_DIR/make_app_icon.py" || true
+    "$PY_ICON" "$SRC_DIR/tools/make_app_icon.py" || true
   fi
   [ -f "$SRC_DIR/docs/AppIcon.icns" ] && cp "$SRC_DIR/docs/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
 
-DOCS = Path(__file__).resolve().parent / "docs"
+DOCS = Path(__file__).resolve().parent.parent / "docs"
 SS = 4  # supersample factor for crisp edges
 
 # Palette
