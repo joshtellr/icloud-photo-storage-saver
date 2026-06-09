@@ -54,7 +54,11 @@ the app only ever acts on photos you actually own and can delete.
    both. These prompts are required by macOS for *any* app that touches your photos; they
    can't be removed, but nothing leaves your Mac. (Everything else it needs is bundled —
    no Terminal, no Homebrew, no separate install.)
-5. It opens `http://localhost:8421`. That's the app.
+5. **Grant Full Disk Access.** The app reads your Photos library database directly, which
+   macOS guards behind **Full Disk Access** — and macOS never *prompts* for it. If the app
+   shows a "Full Disk Access needed" screen, click its **Open Full Disk Access** button,
+   turn on **iCloud Photo Storage Saver**, then click **Retry**.
+6. It opens `http://localhost:8421`. That's the app.
 
 ## Install from source
 
@@ -81,7 +85,9 @@ bash setup.sh --deps-only                       # user-level osxphotos + libs
 ## Requirements
 
 - macOS 11+ on **Apple Silicon**, with the Apple **Photos** app and an active Photos library
-- Permissions: **Photos** access + **Automation** (to open items in Photos and trash them)
+- Permissions: **Full Disk Access** (to read the Photos library database — must be granted
+  by hand in System Settings; macOS never prompts for it), plus **Photos** access +
+  **Automation** (to open items in Photos and trash them)
 - **Nothing else to install** — the `.dmg` bundles its own Python,
   [`osxphotos`](https://github.com/RhetTbull/osxphotos), `pillow`, `pillow-heif`,
   `pyobjc-framework-Photos`, and `ffmpeg` + `exiftool` (for Compress). No uv, no Homebrew.
